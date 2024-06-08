@@ -37,7 +37,30 @@ The Bank System Application is a PyQt5-based desktop application that simulates 
 3. **Install Dependencies**:
    ```bash
    pip install -r requirements.txt
-4. **Run the Application**:
+4. **Generation of SSL/TLS Certificates:**
+
+To generate a server certificate and private key, you can use the openssl tool. Here are the commands to generate these files:
+1. *Generate a private key*:
+    ```bash
+   openssl genpkey -algorithm RSA -out server_key.pem
+   ```
+2. *Générer une demande de signature de certificat (CSR)*:
+    ```bash
+   openssl req -new -key server_key.pem -out server_csr.pem
+    ```
+3. *Générer un certificat auto-signé*:
+    ```bash
+   openssl x509 -req -days 365 -in server_csr.pem -signkey server_key.pem -out server_cert.pem
+    ```
+    These steps generate two main files:
+
+    `server_key.pem`  : The private key of the server.
+
+    `server_cert.pem` : The server certificate.
+    
+    
+
+5. **Run the Application**:
    ```bash
    python main.py
    
