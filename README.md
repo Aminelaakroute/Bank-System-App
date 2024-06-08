@@ -29,5 +29,38 @@ The Bank System Application is a PyQt5-based desktop application that simulates 
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/your-repo/bank-system-app.git
-   cd bank-system-app
+   https://github.com/Aminelaakroute/Bank-System-App.git
+2. **Create and Activate a Virtual Environment**:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+3. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+4. **Run the Application**:
+   ```bash
+   python main.py
+   
+## Usage
+- **Starting the Server**
+  1. Open the application.
+  2. Enter the port number in the `Port` input field.
+  3. Upload the SSL/TLS certificate and key using the `Upload Certificate` and `Upload Key` buttons.
+  4. Click the `Start Server` button to start the server.
+  5. The server status will be displayed in the `Server Status` label.
+  6. You can stop Server in `Stop Server`
+- **Connecting the Client**
+  1. Click the `Connect to Server` button to connect to the server.
+  2. The client status will be displayed in the `Server Status` label.
+  3. You can stop Client Server in `Stop Client`
+  
+## Contributing
+Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes
+
+## Acknowledgements
+- PyQt5 for the GUI framework.
+- SQLite for the database.
+- Sockets
+- Signals
+- SSL/TLS for secure communication.
+
