@@ -1,0 +1,18 @@
+<RCC>
+  <qresource prefix="icon">
+    <file>github.png</file>
+    <file>management.png</file>
+    <file>finance.png</file>
+    <file>start.png</file>
+    <file>stop.png</file>
+    <file>upload.png</file>
+    <file>search.png</file>
+    <file>menu.png</file>
+    <file>bank.png</file>
+    <file>account.png</file>
+    <file>client.png</file>
+    <file>close.png</file>
+    <file>operation.png</file>
+    <file>server.png</file>
+  </qresource>
+</RCC>
