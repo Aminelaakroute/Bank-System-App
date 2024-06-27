@@ -6,38 +6,40 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QFileDialog, QMessageBox,
 
 from PyQt5.QtWidgets import QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFormLayout
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, pyqtSlot, QObject
-
-from PyQt5.QtCore import QUrl
-from PyQt5.QtGui import QDesktopServices
-
-
 import sqlite3
 import pandas as pd
 from untitled_ui import Ui_MainWindow
 
+import socket
+import ssl
+import sqlite3
+import threading
 
 
 class ServerSignals(QObject):
     started = pyqtSignal(int)
-    stopped = pyqtSignal()
+    stopped  = pyqtSignal()
     update_status_label = pyqtSignal(str)
+
+
+class ClientSignals(QObject):
     connectedClient = pyqtSignal(object)
     error = pyqtSignal(str)
     response_received = pyqtSignal(str)
     stoppedClient = pyqtSignal()
 
-
 class ServerThread(threading.Thread):
-    def __init__(self, port, server_address, certfile, keyfile, signals):
+    def __init__(self, port, server_address, certfile, keyfile, status_label):
         super(ServerThread, self).__init__()
         self.port = port
         self.certfile = certfile
         self.keyfile = keyfile
+        self.status_label = status_label
         self.server_socket = None
         self.running = True
         self.server_address = server_address
         self.conn = sqlite3.connect("banque.db")
-        self.signals = signals
+        self.signals = ServerSignals()
 
     def run(self):
         try:
@@ -50,6 +52,7 @@ class ServerThread(threading.Thread):
             self.server_socket.listen(5)
             self.server_socket.settimeout(1)  # Set a timeout for the accept method
             self.signals.started.emit(self.port)
+            #self.status_label.setText(f"Server started on port {self.port}")
             print(f"Server started on port {self.port}")
 
             while self.running:
@@ -71,7 +74,6 @@ class ServerThread(threading.Thread):
             if self.server_socket:
                 self.server_socket.close()
             self.signals.update_status_label.emit("Server stopped")
-            self.signals.stopped.emit()
             print("Server socket closed")
 
     def handle_client(self, client_socket, addr):
@@ -105,7 +107,7 @@ class ServerThread(threading.Thread):
                         else:
                             client_socket.send("TRANSFERT NOK".encode("utf-8"))
                     elif command == "HISTORIQUE" and len(message) == 2:
-                        client_socket.send(("HISTORIQUE " + self.historique(message[1])).encode("utf-8"))
+                        client_socket.send(("HISTORIQUE \n" + self.historique(message[1])).encode("utf-8"))
                     else:
                         client_socket.send("Commande non reconnue".encode("utf-8"))
                         print("Message non compris : " + " ".join(message))
@@ -180,27 +182,30 @@ class ServerThread(threading.Thread):
     def historique(self, nocompte):
         baseDeDonnees, curseur = self.connexionBaseDeDonnees()
         curseur.execute("SELECT DateOperation, LibelleOperation, Montant FROM operations WHERE NumeroCompte = ? ORDER BY DateOperation DESC LIMIT 10;", (nocompte,))
-        historiqueCSV = "\"DateOperation\";\"LibelleOperation\";\"Montant\"\n"
-        for ligne in curseur.fetchall():
-            historiqueCSV += "\"" + ligne[0] + "\";\"" + ligne[1] + "\";\"" + str(ligne[2]) + "\"\n"
-        baseDeDonnees.close()
+        historiqueCSV = "\"DateOperation\"---------\"LibelleOperation\"---------\"Montant\"\n"
+        for ligne in curseur.fetchall()  :
+            historiqueCSV += "\"" + ligne[0] + "\"-------------\"" + ligne[1] + "\"--------------\"" + str(ligne[2]) + "\"\n"
         return historiqueCSV
+
 
     def stop(self):
         self.running = False
         if self.server_socket:
             self.server_socket.close()
         self.signals.stopped.emit()
-        self.signals.update_status_label.emit("Server stopped")
+        self.status_label.setText("Server stopped")
         print("Server stopped")
 
+
+
 class ClientThread(QThread):
-    def __init__(self, server_address, port, signals):
+
+    def __init__(self, server_address, port):
         super().__init__()
         self.server_address = server_address
         self.port = port
         self.clientTLS = None
-        self.signals = signals
+        self.signals = ClientSignals()
 
     def run(self):
         try:
@@ -212,8 +217,10 @@ class ClientThread(QThread):
             self.clientTLS.connect((self.server_address, self.port))
 
             self.signals.connectedClient.emit(self.clientTLS)
+        except ssl.SSLError as ssl_error:
+            self.signals.error.emit(f"SSL error: {ssl_error}")
         except Exception as e:
-            self.signals.error.emit(f"Error connecting to the server: {e}")
+            self.error.emit(f"Error connecting to the server: {e}")
 
     def send_message(self, message):
         try:
@@ -226,22 +233,30 @@ class ClientThread(QThread):
         except Exception as e:
             self.signals.error.emit(f"Error sending message: {e}")
 
-    def close_connection(self):
+    def receive_response(self):
         try:
+            if self.clientTLS:
+                response = self.clientTLS.recv(1024).decode("utf-8")
+                self.signals.response_received.emit(response)
+            else:
+                self.signals.error.emit("Client not connected")
+        except Exception as e:
+            self.signals.error.emit(f"Error receiving response: {e}")
+
+    def close_connection(self):
+        try :
             if self.clientTLS:
                 self.clientTLS.close()
                 self.signals.stoppedClient.emit()
+                #self.clientTLS = None
         except Exception as e:
             self.signals.error.emit(f"Error closing connection: {e}")
-
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
         self.server_thread = None
         self.client_thread = None
-
-        self.signals = ServerSignals()
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
@@ -251,6 +266,10 @@ class MainWindow(QMainWindow):
         self.ui.server_button.setChecked(True)
 
         # Connect buttons to their functions
+#        self.ui.search_btn.clicked.connect(self.on_search_btn_clicked)
+#        self.ui.pushButton_12.clicked.connect(self.on_user_btn_clicked)
+#        self.ui.stackedWidget.currentChanged.connect(self.on_stackedWidget_currentChanged)
+
         self.ui.server_button.clicked.connect(self.server_button)
         self.ui.server_button0.clicked.connect(self.server_button0)
         self.ui.client_btn.clicked.connect(self.client_btn)
@@ -262,13 +281,16 @@ class MainWindow(QMainWindow):
         self.ui.pushButton.clicked.connect(self.pushButton)
         self.ui.pushButton0.clicked.connect(self.pushButton0)
 
-        # Input Place holder Text
+
+        #Input Place holder Text
         self.ui.server_status_label.setText("Server status: Stopped")
         self.ui.port_input.setPlaceholderText("Enter the server port number (e.g., 8000)")
 
         self.ui.cert_input.setPlaceholderText("Path to certificate file (*.pem, *.crt)")
         self.ui.key_input.setPlaceholderText("Path to private key file (*.pem, *.key)")
-        self.ui.message.setPlaceholderText("The first thing connect server then connect client server")
+
+
+
 
         # CSV upload buttons
         self.ui.Upload_client.clicked.connect(self.upload_clients)
@@ -285,7 +307,7 @@ class MainWindow(QMainWindow):
         self.ui.upload_key.clicked.connect(self.upload_key)
 
         # Connecter la fonction operation_selected à l'événement de changement de sélection du QComboBox
-        self.ui.comboBox.addItems(["Choose","Deposit", "Withdrawal", "Transfer", "History", "balance"])
+        self.ui.comboBox.addItems(["Deposit", "Withdrawal", "Transfer", "History", "balance"])
         self.ui.comboBox.currentIndexChanged.connect(self.operation_selected)
         self.ui.connect_to_server.clicked.connect(self.connect_button_clicked)
         self.ui.Stop_client_server.clicked.connect(self.stop_client)
@@ -293,22 +315,10 @@ class MainWindow(QMainWindow):
         self.ui.connect_client.clicked.connect(self.connect_and_check_account)
         self.ui.stop_server.clicked.connect(self.stop_server)
 
-        # Connect signals to slots
-        self.signals.started.connect(self.on_server_started)
-        self.signals.stopped.connect(self.on_server_stopped)
-        self.signals.update_status_label.connect(self.update_status_label)
-        self.signals.connectedClient.connect(self.on_connected)
-        self.signals.stoppedClient.connect(self.on_client_stopped)
-        self.signals.error.connect(self.on_error)
 
-        # Open website
-        self.ui.github.clicked.connect(self.open_website)
-    #fonction for openning web site
-    def open_website(self):
-        url = QUrl("https://github.com/Aminelaakroute")
-        QDesktopServices.openUrl(url)
 
-    ## functions for changing menu page
+        ## functions for changing menu page
+
     def server_button(self):
         self.ui.stackedWidget.setCurrentIndex(0)
 
@@ -330,7 +340,7 @@ class MainWindow(QMainWindow):
     def operation_btn(self):
         self.ui.stackedWidget.setCurrentIndex(3)
 
-    def operation_btn0(self):
+    def operation_btn0(self, ):
         self.ui.stackedWidget.setCurrentIndex(3)
 
     def pushButton(self):
@@ -339,18 +349,18 @@ class MainWindow(QMainWindow):
     def pushButton0(self):
         self.ui.stackedWidget.setCurrentIndex(4)
 
-    ## Functions for displaying messages
+
     def display_success_message(self, success_message, text_edit_name):
         text_edit = getattr(self.ui, text_edit_name)
-        text_edit.clear()
-        text_edit.setStyleSheet("color: green")
-        text_edit.setPlainText(success_message)
+        text_edit.clear()  # Effacer le contenu actuel du QTextEdit
+        text_edit.setStyleSheet("color: green")  # Définir la couleur du texte en vert
+        text_edit.setPlainText(success_message)  # Définir le nouveau contenu
 
     def display_error_message(self, error_message, text_edit_name):
         text_edit = getattr(self.ui, text_edit_name)
-        text_edit.clear()
-        text_edit.setStyleSheet("color: red")
-        text_edit.setPlainText(error_message)
+        text_edit.clear()  # Effacer le contenu actuel du QTextEdit
+        text_edit.setStyleSheet("color: red")  # Définir la couleur du texte en rouge
+        text_edit.setPlainText(error_message)  # Définir le nouveau contenu
 
     ## Function to upload clients CSV
     @pyqtSlot()
@@ -530,6 +540,7 @@ class MainWindow(QMainWindow):
         ''')
         self.conn.commit()
 
+
     @pyqtSlot()
     def upload_cert(self):
         options = QFileDialog.Options()
@@ -546,6 +557,7 @@ class MainWindow(QMainWindow):
         if fileName:
             self.ui.key_input.setText(fileName)
 
+
     def start_server(self):
         if self.server_thread and self.server_thread.is_alive():
             QMessageBox.warning(self, "Warning", "Server is already running!")
@@ -556,23 +568,26 @@ class MainWindow(QMainWindow):
             server_cert = self.ui.cert_input.text()
             server_key = self.ui.key_input.text()
             server_address = '127.0.0.1'
+            server_status_label = self.ui.server_status_label  # Obtenir le label à partir de l'interface utilisateur
 
             if not server_cert or not server_key:
                 QMessageBox.critical(self, "Error", "Certificate and key files must be specified.")
                 return
 
-            self.server_thread = ServerThread(port, server_address, server_cert, server_key, self.signals)
+            self.server_thread = ServerThread(port, server_address, server_cert, server_key, server_status_label)
+            self.server_thread.signals.started.connect(self.on_server_started)
+            self.server_thread.signals.stopped.connect(self.on_server_stopped)
+            self.server_thread.signals.update_status_label.connect(self.update_status_label)
             self.server_thread.start()
-            print("Server thread started.")
 
         except ValueError:
             QMessageBox.critical(self, "Error", "Port must be an integer.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to start server: {e}")
-            print(f"Failed to start server: {e}")
 
     def on_server_started(self, port):
         self.ui.server_status_label.setText(f"Server started on port {port}")
+
 
     def stop_server(self):
         if not self.server_thread or not self.server_thread.is_alive():
@@ -583,11 +598,14 @@ class MainWindow(QMainWindow):
         print("Server thread stopped.")
 
     def on_server_stopped(self):
-        self.ui.server_status_label.setText("Server stopped")
+        self.ui.server_status_label.setText(f"Server Stopped")
 
     @pyqtSlot(str)
     def update_status_label(self, message):
         self.ui.server_status_label.setText(message)
+
+
+
 
     @pyqtSlot()
     def connect_button_clicked(self):
@@ -601,7 +619,10 @@ class MainWindow(QMainWindow):
                 self.ui.server_status_label.setText("Le serveur n'est pas en cours d'exécution.")
                 return
 
-            self.client_thread = ClientThread(server_address, port, self.signals)
+            self.client_thread = ClientThread(server_address, port)
+            self.client_thread.signals.connectedClient.connect(self.on_connected)
+            self.client_thread.signals.stoppedClient.connect(self.stop_client)
+            self.client_thread.signals.error.connect(self.on_error)
             self.client_thread.start()
         except ValueError:
             self.on_error("Server port must be an integer.")
@@ -609,9 +630,10 @@ class MainWindow(QMainWindow):
             self.on_error(f"Error connecting to the server: {e}")
 
     def stop_client(self):
-        if not self.client_thread : #or not self.client_thread.signals.isRunning():
-            QMessageBox.warning(self, "Warning", "Client is not running!")
+        if not self.client_thread :
+            QMessageBox.warning(self, "Warning", "Server is not running!")
             return
+        self.signals.stoppedClient.connect(self.on_client_stopped)
         self.client_thread.close_connection()
 
     def on_client_stopped(self):
@@ -619,28 +641,33 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(object)
     def on_connected(self, client_socket):
+        server_address = '127.0.0.1'
         self.ui.server_status_label.setText(
-            f"Connected to server at 127.0.0.1:{self.ui.port_input.text()}")
-        # Utilisez le socket client ici
+            f"Connected to server at {server_address}:{int(self.ui.port_input.text())}")
 
     @pyqtSlot(str)
     def on_error(self, error_message):
         QMessageBox.critical(self, "Error", error_message)
 
+
+
+
+
+
     def connect_and_check_account(self):
-        try:
+        try :
             server_address = '127.0.0.1'
             port = int(self.ui.port_input.text())
             nocompte = self.ui.edit_compte.text()
             pin = self.ui.edit_pin.text()
 
-            self.client_thread = ClientThread(server_address, port, self.signals)
+            self.client_thread = ClientThread(server_address, port)
             self.client_thread.signals.connectedClient.connect(lambda clientTLS: self.check_account_wrapper(clientTLS, nocompte, pin))
             self.client_thread.signals.error.connect(self.on_error5)
             self.client_thread.start()
-        except Exception as e:
-            QMessageBox.critical(self, "Warning", "Le serveur n'est pas connecté")
-            print(f"Error: le serveur n'est pas connecté {e}")
+        except Exception as e :
+            QMessageBox.critical(self, "Warning", "le serveur n'est pas connecter")
+            print(f"Error: le serveur n'est pas connecter{e}")
 
     def check_account_wrapper(self, clientTLS, nocompte, pin):
         if self.check_account(clientTLS, nocompte, pin):
@@ -655,11 +682,11 @@ class MainWindow(QMainWindow):
 
             if response == "TESTPIN OK":
                 print("Account verified.")
-                self.ui.message.setText("Account verified")
+                self.ui.message.setText(f"Account verified")
                 return True
             else:
                 print("Incorrect account number or PIN.")
-                self.ui.message.setText("Incorrect account number or PIN.")
+                self.ui.message.setText(f"Incorrect account number or PIN.")
                 return False
 
         except Exception as e:
@@ -673,6 +700,10 @@ class MainWindow(QMainWindow):
 
     def on_error5(self, error_message):
         print(error_message)
+
+
+########################################################################################################################
+
 
     def operation_selected(self, index):
         selected_operation = self.ui.comboBox.currentText()
@@ -711,28 +742,32 @@ class MainWindow(QMainWindow):
     def solde_Client(self):
         self.connect_and_execute("SOLDE")
 
+
     def connect_and_execute(self, operation, montant=None, destcompte=None):
         server_address = '127.0.0.1'
         port = int(self.ui.port_input.text())
         nocompte = self.ui.edit_compte.text()
         pin = self.ui.edit_pin.text()
 
-        self.client_thread = ClientThread(server_address, port, self.signals)
+        self.client_thread = ClientThread(server_address, port)
         self.client_thread.signals.connectedClient.connect(
             lambda clientTLS: self.check_account_and_execute(clientTLS, operation, nocompte, pin, montant, destcompte))
-        self.client_thread.error.connect(self.on_error)
+        self.client_thread.signals.error.connect(self.on_error)
         self.client_thread.start()
 
     def check_account_and_execute(self, clientTLS, operation, nocompte, pin, montant=None, destcompte=None):
-        self.client_thread.response_received.connect(
-            lambda response: self.handle_check_account_response(response, operation, nocompte, pin, montant, destcompte))
+        self.client_thread.signals.response_received.connect(
+            lambda response: self.handle_check_account_response(response, operation, nocompte, pin, montant,
+                                                                destcompte))
         self.client_thread.send_message(f"TESTPIN {nocompte} {pin}")
 
     def handle_check_account_response(self, response, operation, nocompte, pin, montant=None, destcompte=None):
         if response == "TESTPIN OK":
+            # La vérification du compte a réussi
             print("Account verified.")
             self.execute_operation(operation, nocompte, montant, destcompte)
         else:
+            # La vérification du compte a échoué
             print("Account verification failed.")
 
     def execute_operation(self, operation, nocompte, montant=None, destcompte=None):
@@ -744,22 +779,29 @@ class MainWindow(QMainWindow):
         elif operation == "TRANSFERT":
             message = f"TRANSFERT {nocompte} {destcompte} {montant}"
         elif operation == "HISTORIQUE":
-            message = f"HISTORIQUE {nocompte}"
+            message = (f"HISTORIQUE {nocompte}")
         elif operation == "SOLDE":
             message = f"SOLDE {nocompte}"
 
         if message:
-            self.client_thread.response_received.disconnect()  # Déconnecter les anciens signaux
-            self.client_thread.response_received.connect(self.display_response)
+            self.client_thread.signals.response_received.disconnect()  # Déconnecter les anciens signaux
+            self.client_thread.signals.response_received.connect(self.display_response)
             self.client_thread.send_message(message)
+            #self.client_thread.send_message(message)
+            #self.client_thread.response_received.connect(self.display_response)
 
     def display_response(self, response):
-        print(f"Response from server: {response}")
-        self.ui.message.setText(f"Response from server: {response}")
+        print(f"Response from server: \n{response}")
+        self.ui.message.setText(f"Response from server: \n{response}")
         self.client_thread.close_connection()
+
+
+    def on_error(self, error_message):
+        QMessageBox.critical(self, "Erreur", error_message)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
+    mainWindow = MainWindow()
+    mainWindow.show()
     sys.exit(app.exec_())
