@@ -720,11 +720,11 @@ class MainWindow(QMainWindow):
         self.client_thread = ClientThread(server_address, port, self.signals)
         self.client_thread.signals.connectedClient.connect(
             lambda clientTLS: self.check_account_and_execute(clientTLS, operation, nocompte, pin, montant, destcompte))
-        self.client_thread.error.connect(self.on_error)
+        self.client_thread.signals.error.connect(self.on_error)
         self.client_thread.start()
 
     def check_account_and_execute(self, clientTLS, operation, nocompte, pin, montant=None, destcompte=None):
-        self.client_thread.response_received.connect(
+        self.client_thread.signals.response_received.connect(
             lambda response: self.handle_check_account_response(response, operation, nocompte, pin, montant, destcompte))
         self.client_thread.send_message(f"TESTPIN {nocompte} {pin}")
 
@@ -749,8 +749,8 @@ class MainWindow(QMainWindow):
             message = f"SOLDE {nocompte}"
 
         if message:
-            self.client_thread.response_received.disconnect()  # Déconnecter les anciens signaux
-            self.client_thread.response_received.connect(self.display_response)
+            self.client_thread.signals.response_received.disconnect()  # Déconnecter les anciens signaux
+            self.client_thread.signals.response_received.connect(self.display_response)
             self.client_thread.send_message(message)
 
     def display_response(self, response):

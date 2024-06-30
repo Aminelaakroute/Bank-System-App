@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
 
         self.ui.cert_input.setPlaceholderText("Path to certificate file (*.pem, *.crt)")
         self.ui.key_input.setPlaceholderText("Path to private key file (*.pem, *.key)")
-
+        self.ui.message.setPlaceholderText("The first thing connect server then connect client server")
 
 
 
