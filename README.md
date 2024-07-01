@@ -44,11 +44,11 @@ The Bank System Application is a PyQt5-based desktop application that simulates 
        ```bash
       openssl genpkey -algorithm RSA -out server_key.pem
       ```
-   2. *Générer une demande de signature de certificat (CSR)*:
+   2. *Generate a certificate signing request (CSR):*:
        ```bash
       openssl req -new -key server_key.pem -out server_csr.pem
        ```
-   3. *Générer un certificat auto-signé*:
+   3. *Generate a self-signed certificate:*:
        ```bash
       openssl x509 -req -days 365 -in server_csr.pem -signkey server_key.pem -out server_cert.pem
        ```
