@@ -63,7 +63,7 @@ The Bank System Application is a PyQt5-based desktop application that simulates 
    ```bash
    python main.py
    
-## Usage
+## Use
 - **Starting the Server**
   1. Open the application.
   2. Enter the port number in the `Port` input field.
@@ -79,7 +79,7 @@ The Bank System Application is a PyQt5-based desktop application that simulates 
 ## Contributing
 Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes
 
-## Acknowledgements
+## Tools
 - PyQt5 for the GUI framework.
 - SQLite for the database.
 - Sockets
